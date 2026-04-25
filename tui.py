@@ -1,19 +1,40 @@
-import argparse
 import curses
 import json
 import time
-from turtle import st
 from urllib.error import URLError, HTTPError
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
+import json
+import requests
 
 
 DEFAULT_URL = "http://192.168.2.1:8000"
 REFRESH_INTERVAL = 0.5
+READINESS_CONFIRMED = False
 
+session = requests.Session()
 
 def fetch_state(base_url: str) -> dict:
-    with urlopen(f"{base_url.rstrip('/')}/", timeout=2) as response:
-        return json.loads(response.read().decode("utf-8"))
+    url = f"{base_url.rstrip('/')}/"
+    
+    try:
+        r = session.get(url, timeout=2)
+    except:
+        return {}
+
+    return r.json()
+    
+def confirm_readiness(base_url: str):
+    url = f"{base_url.rstrip('/')}/tui"
+    data = {}
+
+    r = session.post(url, data)
+
+    if (r.status_code != 200):
+        return False
+    
+    global READINESS_CONFIRMED
+    READINESS_CONFIRMED = True
+    return True
 
 
 def draw_label(stdscr: curses.window, y: int, x: int, label: str, value: str, color: int) -> None:
@@ -53,8 +74,11 @@ def render_winner_screen(stdscr: curses.window, state: dict) -> None:
 
     center_text(stdscr, 8, f"Red Auto: {red_auto}   Red Teleop: {red_teleop}", curses.color_pair(1))
     center_text(stdscr, 9, f"Blue Auto: {blue_auto}   Blue Teleop: {blue_teleop}", curses.color_pair(4))
+    
+    center_text(stdscr, 11, f"Energized Red: {red_score}/360 {'✓' if red_score >= 360 else ' '}    Energized Blue: {blue_score}/360 {'✓' if blue_score >= 360 else ''}")
+    center_text(stdscr, 12, f"Supercharged Red: {red_score}/500 {'✓' if red_score >= 500 else ' '}    Energized Blue: {blue_score}/500 {'✓' if blue_score >= 500 else ''}")
 
-    center_text(stdscr, 12, "Press q to quit", curses.A_DIM)
+    center_text(stdscr, 15, "Press q to quit", curses.A_DIM)
     footer = "Winner is based on total score; breakdown shows auto and teleop points"
     center_text(stdscr, height - 2, footer[: max(0, width - 2)], curses.A_DIM)
     stdscr.refresh()
@@ -78,10 +102,13 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
             render_winner_screen(stdscr, state)
             return
         
-        if (state.get("connected_scorekeepers", 0) < 1):
+        if (state.get("waiting_for_scorekeepers", True) == True):
             stdscr.addstr(5, 4, "Status: waiting for scorekeepers", curses.color_pair(3) | curses.A_BOLD)
+        elif not READINESS_CONFIRMED:
+            stdscr.addstr(5, 4, "Status: ready to start", curses.color_pair(3) | curses.A_BOLD)
         else:
-            stdscr.addstr(5, 4, "Status: ready", curses.color_pair(2) | curses.A_BOLD)
+            stdscr.addstr(5, 4, "Status: active", curses.color_pair(2) | curses.A_BOLD)
+
 
         draw_label(stdscr, 7, 4, "Phase: ", str(state.get("current_phase", "?")), 2)
         draw_label(stdscr, 8, 4, "Match Time: ", str(state.get("match_time", "?")), 2)
@@ -134,6 +161,9 @@ def run_tui(stdscr: curses.window) -> None:
         key = stdscr.getch()
         if key in (ord("q"), ord("Q")):
             break
+
+        if key == ord(" "):
+            confirm_readiness(DEFAULT_URL)
 
 
 def main() -> None:

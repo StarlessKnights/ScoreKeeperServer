@@ -8,7 +8,9 @@ import random
 
 class ScoreData(BaseModel):
     identifier: str
+    token: str
     alliance: str
+    count: int
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -24,23 +26,33 @@ blue_score = 0
 red_wasted = 0
 blue_wasted = 0
 match_time = 160
-current_phase = "Auto"
+current_phase = "Waiting"
 inactive_first = ""
 auto_ended = False
 counting_down = True
+waiting_for_scorekeepers = True
 connected_scorekeepers = []
+batched_score = -1
 
 red_scored_auto = 0
 blue_scored_auto = 0
 red_scored_teleop = 0
 blue_scored_teleop = 0
 
+tui_ready = False
+
+DESIRED_SCOREKEEPERS = 1
+
 async def update_match_time():
-    global match_time, current_phase, counting_down
+    global match_time, current_phase, counting_down, waiting_for_scorekeepers
 
-    while (len(connected_scorekeepers) != 1):
-        await asyncio.sleep(2)
+    while (waiting_for_scorekeepers or not tui_ready):
+        await asyncio.sleep(1)
 
+        if (len(connected_scorekeepers) == DESIRED_SCOREKEEPERS):
+            waiting_for_scorekeepers = False
+
+    waiting_for_scorekeepers = False
     counting_down = True
 
     for i in range(5):
@@ -48,6 +60,8 @@ async def update_match_time():
         await asyncio.sleep(1)
 
     counting_down = False
+
+    current_phase = "Auto"
 
     while match_time > 0:
         await asyncio.sleep(1)
@@ -90,49 +104,80 @@ async def udp_discovery_server():
 
 @app.get("/")
 def read_root():
-    return {"red_score": red_score, "blue_score": blue_score, "current_phase": current_phase, "match_time": match_time, "red_active": is_alliance_active("Red"), "blue_active": is_alliance_active("Blue"), "red_wasted": red_wasted, "blue_wasted": blue_wasted, "counting_down": counting_down, "connected_scorekeepers": connected_scorekeepers, "red_scored_auto": red_scored_auto, "blue_scored_auto": blue_scored_auto, "red_scored_teleop": red_scored_teleop, "blue_scored_teleop": blue_scored_teleop}
+    return {
+        "red_score": red_score, 
+        "blue_score": blue_score, 
+        "current_phase": current_phase, 
+        "match_time": match_time, 
+        "red_active": is_alliance_active("Red"), 
+        "blue_active": is_alliance_active("Blue"), 
+        "red_wasted": red_wasted, 
+        "blue_wasted": blue_wasted, 
+        "counting_down": counting_down, 
+        "connected_scorekeepers": connected_scorekeepers, 
+        "red_scored_auto": red_scored_auto, 
+        "blue_scored_auto": blue_scored_auto, 
+        "red_scored_teleop": red_scored_teleop, 
+        "blue_scored_teleop": blue_scored_teleop, 
+        "waiting_for_scorekeepers": waiting_for_scorekeepers, 
+        "tui_ready": tui_ready, 
+        "batched_score": batched_score
+        }
+
+@app.post("/tui")
+def post_tui_ready():
+    global tui_ready
+    tui_ready = True
 
 @app.post("/", status_code=201)
 def change_score(data: ScoreData):
-    if not update_score(data.identifier, data.alliance):
-        raise HTTPException(status_code=404, detail="Invalid alliance")
-    return {"message": "Score updated"}
+    response = update_score(data)
+    
+    if (response["ok"] == True):
+        return {"message": response["message"]}
+    else:
+        return HTTPException(404, response["message"])
 
-def update_score(identifier: str, alliance: str) -> bool:
-    global red_score, blue_score, red_wasted, blue_wasted
+def update_score(data: ScoreData) -> dict:
+    global red_score, blue_score, red_wasted, blue_wasted, batched_score
+    
+    batched_score = data.count
 
     with lock:
-        if alliance.lower() == "red":
+        if current_phase == "Waiting" or current_phase == "Intermission":
+            return {"ok": True, "message": "No score updates allowed in intermediary phases"}
+
+        if data.alliance.lower() == "red":
             if (is_alliance_active("Red")):
-                red_score += 1
+                red_score += data.count
 
                 if current_phase in ["Auto"]:
                     global red_scored_auto
-                    red_scored_auto += 1
+                    red_scored_auto += data.count
                 else:
                     global red_scored_teleop
-                    red_scored_teleop += 1
+                    red_scored_teleop += data.count
             else:
-                red_wasted += 1
+                red_wasted += data.count
 
-            return True
-        elif alliance.lower() == "blue":
+            return {"ok": True, "message": "Score updated for red"}
+        elif data.alliance.lower() == "blue":
             if (is_alliance_active("Blue")):
-                blue_score += 1
+                blue_score += data.count
 
                 if current_phase in ["Auto"]:
                     global blue_scored_auto
-                    blue_scored_auto += 1
+                    blue_scored_auto += data.count
                 else:
                     global blue_scored_teleop
-                    blue_scored_teleop += 1
+                    blue_scored_teleop += data.count
             else:
-                blue_wasted += 1
+                blue_wasted += data.count
 
-            return True
+            return {"ok": True, "message": "Score updated for blue"}
         else:
-            print(f"Invalid alliance: {alliance}")
-            return False
+            print(f"Invalid alliance: {data.alliance}")
+            return {"ok": False, "message": "Invalid alliance"}
 
 def update_phase():
     global current_phase, match_time, auto_ended
