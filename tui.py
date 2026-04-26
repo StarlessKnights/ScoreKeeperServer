@@ -1,8 +1,6 @@
 import curses
 import json
 import time
-from urllib.error import URLError, HTTPError
-from urllib.request import urlopen, Request
 import json
 import requests
 
@@ -112,17 +110,18 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
 
         draw_label(stdscr, 7, 4, "Phase: ", str(state.get("current_phase", "?")), 2)
         draw_label(stdscr, 8, 4, "Match Time: ", str(state.get("match_time", "?")), 2)
-        draw_label(stdscr, 10, 4, "Red Score: ", str(state.get("red_score", 0)), 1)
-        draw_label(stdscr, 11, 4, "Blue Score: ", str(state.get("blue_score", 0)), 4)
-        draw_label(stdscr, 12, 4, "Red Wasted: ", str(state.get("red_wasted", 0)), 1)
-        draw_label(stdscr, 13, 4, "Blue Wasted: ", str(state.get("blue_wasted", 0)), 4)
-        draw_label(stdscr, 15, 4, "Connected Scorekeepers: ", str(state.get("connected_scorekeepers", 0)), 2)
-        draw_label(stdscr, 16, 4, "Counting Down: ", str(state.get("counting_down", False)), 2)
+        draw_label(stdscr, 9, 4, "Phase Change Time: ", str(state.get("time_until_phase_change", "?")), 2)
+        draw_label(stdscr, 11, 4, "Red Score: ", str(state.get("red_score", 0)), 1)
+        draw_label(stdscr, 12, 4, "Blue Score: ", str(state.get("blue_score", 0)), 4)
+        draw_label(stdscr, 13, 4, "Red Wasted: ", str(state.get("red_wasted", 0)), 1)
+        draw_label(stdscr, 14, 4, "Blue Wasted: ", str(state.get("blue_wasted", 0)), 4)
+        draw_label(stdscr, 16, 4, "Connected Scorekeepers: ", str(state.get("connected_scorekeepers", 0)), 2)
+        draw_label(stdscr, 17, 4, "Counting Down: ", str(state.get("counting_down", False)), 2)
 
         red_active = state.get("red_active", False)
         blue_active = state.get("blue_active", False)
-        draw_label(stdscr, 18, 4, "Red Active: ", str(red_active), 1 if red_active else 3)
-        draw_label(stdscr, 19, 4, "Blue Active: ", str(blue_active), 4 if blue_active else 3)
+        draw_label(stdscr, 19, 4, "Red Active: ", str(red_active), 1 if red_active else 3)
+        draw_label(stdscr, 20, 4, "Blue Active: ", str(blue_active), 4 if blue_active else 3)
 
     footer = "Refreshes automatically every 0.5s"
     stdscr.addstr(height - 2, max(0, (width - len(footer)) // 2), footer, curses.A_DIM)
@@ -151,7 +150,7 @@ def run_tui(stdscr: curses.window) -> None:
             try:
                 state = fetch_state(DEFAULT_URL)
                 error = None
-            except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+            except (requests.HTTPError, requests.Timeout, TimeoutError, json.JSONDecodeError, OSError) as exc:
                 state = None
                 error = str(exc)
             last_fetch = now

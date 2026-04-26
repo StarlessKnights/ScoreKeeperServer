@@ -8,7 +8,6 @@ import random
 
 class ScoreData(BaseModel):
     identifier: str
-    token: str
     alliance: str
     count: int
 
@@ -26,6 +25,7 @@ blue_score = 0
 red_wasted = 0
 blue_wasted = 0
 match_time = 160
+time_until_phase_change = 0
 current_phase = "Waiting"
 inactive_first = ""
 auto_ended = False
@@ -67,6 +67,7 @@ async def update_match_time():
         await asyncio.sleep(1)
         match_time -= 1
         update_phase()
+        update_time_until_phase_change()
 
         if (match_time == 140):
             print("Auto phase ended")
@@ -121,7 +122,8 @@ def read_root():
         "blue_scored_teleop": blue_scored_teleop, 
         "waiting_for_scorekeepers": waiting_for_scorekeepers, 
         "tui_ready": tui_ready, 
-        "batched_score": batched_score
+        "batched_score": batched_score,
+        "time_until_phase_change": time_until_phase_change
         }
 
 @app.post("/tui")
@@ -219,3 +221,21 @@ def is_alliance_active(alliance: str) -> bool:
         return current_phase in ["Auto", "Transition", "Shift 2", "Shift 4", "Endgame"]
     else:
         return current_phase in ["Auto", "Transition", "Shift 1", "Shift 3", "Endgame"]
+    
+def update_time_until_phase_change():
+    global time_until_phase_change
+    
+    if (current_phase == "Auto"):
+        time_until_phase_change = match_time - 140
+    elif (current_phase == "Transition"):
+        time_until_phase_change = match_time - 130
+    elif (current_phase == "Shift 1"):
+        time_until_phase_change = match_time - 105
+    elif (current_phase == "Shift 2"):
+        time_until_phase_change = match_time - 80
+    elif (current_phase == "Shift 3"):
+        time_until_phase_change = match_time - 55
+    elif (current_phase == "Shift 4"):
+        time_until_phase_change = match_time - 30
+    elif (current_phase == "Endgame"):
+        time_until_phase_change = match_time
