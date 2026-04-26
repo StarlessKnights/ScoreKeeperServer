@@ -33,7 +33,6 @@ auto_ended = False
 counting_down = True
 waiting_for_scorekeepers = True
 connected_scorekeepers = []
-batched_score = -1
 
 red_scored_auto = 0
 blue_scored_auto = 0
@@ -65,7 +64,6 @@ def build_state_payload() -> dict:
         "blue_scored_teleop": blue_scored_teleop,
         "waiting_for_scorekeepers": waiting_for_scorekeepers,
         "tui_ready": tui_ready,
-        "batched_score": batched_score,
         "time_until_phase_change": time_until_phase_change,
     }
 
@@ -115,6 +113,9 @@ async def update_match_time():
             await asyncio.sleep(sleep_for)
         else:
             next_match_tick = time.monotonic()
+            
+        update_score(ScoreData(alliance="Red", count=random.randint(0, 20)))
+        update_score(ScoreData(alliance="Blue", count=random.randint(0, 20)))
 
         match_time = max(0, match_time - 1)
         if match_time > 0:
@@ -217,9 +218,7 @@ async def websocket_state(websocket: WebSocket):
             ws_clients.discard(websocket)
 
 def update_score(data: ScoreData) -> dict:
-    global red_score, blue_score, red_wasted, blue_wasted, batched_score
-    
-    batched_score = data.count
+    global red_score, blue_score, red_wasted, blue_wasted
 
     with lock:
         if current_phase == "Waiting" or current_phase == "Intermission":

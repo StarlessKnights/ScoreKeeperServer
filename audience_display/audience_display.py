@@ -5,11 +5,19 @@ import json
 import requests
 from helper.live_state_stream import LiveStateStream
 from helper.drawing_functions import (center_text, draw_big_score, draw_big_text, format_match_time, make_big_text_rows)
-
+import os
 
 DEFAULT_URL = "http://127.0.0.1:8000"
 REFRESH_INTERVAL = 0.5
 READINESS_CONFIRMED = False
+READY_TO_ADVANCE = False
+
+existing_files = [f for f in os.listdir("match_data") if f.startswith("match_") and f.endswith(".json")]
+
+if existing_files:
+    highest_match_number = max(int(f.split("_")[1].split(".")[0]) for f in existing_files)
+else:
+    highest_match_number = 0
 
 session = requests.Session()
 
@@ -94,10 +102,10 @@ def draw_active_arrow(stdscr: curses.window, y: int, x: int, facingLeft: bool) -
 
 def render(stdscr: curses.window, base_url: str, state: dict | None, error: str | None) -> None:
     stdscr.erase()
-    _, width = stdscr.getmaxyx()
+    height, width = stdscr.getmaxyx()
 
     title = "Torque FMS - Audience Display"
-    subtitle = f"Server: {base_url}    Press q to quit"
+    subtitle = f"Practice Match {highest_match_number + 1}"
     stdscr.addstr(1, max(0, (width - len(title)) // 2), title, curses.A_BOLD | curses.A_UNDERLINE)
     stdscr.addstr(3, max(0, (width - len(subtitle)) // 2), subtitle)
 
@@ -106,34 +114,33 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
     elif not state:
         stdscr.addstr(5, 4, "Status: waiting for server...", curses.color_pair(3) | curses.A_BOLD)
     else:
-        if int(state.get("match_time", 1)) <= 0 or state.get("current_phase") == "Match Ended":
+        if (int(state.get("match_time", 1)) <= 0 or state.get("current_phase") == "Match Ended") and READY_TO_ADVANCE:
             render_winner_screen(stdscr, state)
             return
 
         if (state.get("waiting_for_scorekeepers", True) == True):
-            stdscr.addstr(5, 4, "Status: waiting for scorekeepers", curses.color_pair(3) | curses.A_BOLD)
+            stdscr.addstr(height - 2, 2, "Status: waiting for scorekeepers", curses.color_pair(3) | curses.A_BOLD)
         elif not READINESS_CONFIRMED:
-            stdscr.addstr(5, 4, "Status: ready to start", curses.color_pair(3) | curses.A_BOLD)
+            stdscr.addstr(height - 2, 2, "Status: ready to start", curses.color_pair(3) | curses.A_BOLD)
         else:
-            stdscr.addstr(5, 4, "Status: active", curses.color_pair(2) | curses.A_BOLD)
+            stdscr.addstr(height - 2, 2, "Status: active", curses.color_pair(2) | curses.A_BOLD)
 
-        center_text(stdscr, 7, f"Phase: {str(state.get('current_phase', '?'))}", curses.A_BOLD)
+        center_text(stdscr, 5, f"Phase: {str(state.get('current_phase', '?'))}", curses.A_BOLD)
 
         display_time_value = get_display_time(state)
-        center_text(stdscr, 8, "Match Time", curses.A_BOLD)
 
         match_time_text = format_match_time(display_time_value)
         match_time_width = len(make_big_text_rows(match_time_text)[0])
         match_time_x = max(2, (width - match_time_width) // 2)
-        draw_big_text(stdscr, 10, match_time_x, match_time_text, 2)
+        draw_big_text(stdscr, 7, match_time_x, match_time_text, 2)
 
         red_score = int(state.get("red_score", 0))
         blue_score = int(state.get("blue_score", 0))
 
         red_label = "RED"
         blue_label = "BLUE"
-        stdscr.addstr(15, max(2, width // 4 - (len(red_label) + 1) // 2), red_label, curses.color_pair(1) | curses.A_BOLD)
-        stdscr.addstr(15, max(2, (3 * width) // 4 - (len(blue_label) + 1) // 2), blue_label, curses.color_pair(4) | curses.A_BOLD)
+        stdscr.addstr(14, max(2, width // 4 - (len(red_label) + 1) // 2), red_label, curses.color_pair(1) | curses.A_BOLD)
+        stdscr.addstr(14, max(2, (3 * width) // 4 - (len(blue_label) + 1) // 2), blue_label, curses.color_pair(4) | curses.A_BOLD)
 
         big_width_red = len(make_big_text_rows(str(red_score))[0])
         big_width_blue = len(make_big_text_rows(str(blue_score))[0])
@@ -142,11 +149,11 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
         blue_x = max(2, (3 * width) // 4 - big_width_blue // 2)
 
         if (state.get("blue_active", False) and not state.get("current_phase", "") == "Waiting"):
-            blue_arrow_x = max(2, blue_x - 11)
+            blue_arrow_x = max(2, blue_x + (big_width_blue // 2) - 21)
             draw_active_arrow(stdscr, 17, blue_arrow_x, facingLeft=False)
             
         if (state.get("red_active", False) and not state.get("current_phase", "") == "Waiting"):
-            red_arrow_x = max(2, red_x + 11)
+            red_arrow_x = max(2, red_x + (big_width_red // 2) + 14)
             draw_active_arrow(stdscr, 17, red_arrow_x, facingLeft=True)
         
         draw_big_score(stdscr, 16, red_x, red_score, 1)
@@ -156,7 +163,6 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
             stdscr,
             23,
             f"Red Wasted: {state.get('red_wasted', 0)}    Blue Wasted: {state.get('blue_wasted', 0)}    Scorekeepers: {state.get('connected_scorekeepers', 0)}",
-            curses.A_BOLD,
         )
 
     stdscr.refresh()
@@ -209,8 +215,29 @@ def run_tui(stdscr: curses.window) -> None:
 
         if key == ord(" "):
             confirm_readiness(DEFAULT_URL)
+            
+        if key == ord("\n") and state and state.get("current_phase") == "Match Ended":
+            global READY_TO_ADVANCE
+            READY_TO_ADVANCE = not READY_TO_ADVANCE
+            
+        if (key == ord("s") or key == ord("S")) and state and state.get("current_phase") == "Match Ended":
+            filename = f"match_data/match_{highest_match_number + 1}.json"
 
+            with open(filename, "w") as f:
+                state["saved_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                state["red_energized"] = state.get("red_score", 0) >= 360
+                state["blue_energized"] = state.get("blue_score", 0) >= 360
+                state["red_supercharged"] = state.get("red_score", 0) >= 500
+                state["blue_supercharged"] = state.get("blue_score", 0) >= 500
+                
+                state["red_average_bps_auto"] = round(state.get("red_scored_auto", 0) / 20, 2)
+                state["blue_average_bps_auto"] = round(state.get("blue_scored_auto", 0) / 20, 2)
+                
+                state["red_average_bps_teleop"] = round(state.get("red_scored_teleop", 0) / 90, 2)
+                state["blue_average_bps_teleop"] = round(state.get("blue_scored_teleop", 0) / 90, 2)
 
+                json.dump(state, f, indent=4)
+                
 def main() -> None:
     curses.wrapper(run_tui)
 
