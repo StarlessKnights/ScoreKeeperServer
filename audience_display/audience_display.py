@@ -3,10 +3,8 @@ import json
 import time
 import json
 import requests
-import asyncio
-import threading
-import importlib
-from urllib.parse import urlparse
+from helper.live_state_stream import LiveStateStream
+from helper.drawing_functions import (center_text, draw_big_score, draw_big_text, format_match_time, make_big_text_rows)
 
 
 DEFAULT_URL = "http://127.0.0.1:8000"
@@ -14,167 +12,6 @@ REFRESH_INTERVAL = 0.5
 READINESS_CONFIRMED = False
 
 session = requests.Session()
-
-
-def build_ws_url(base_url: str) -> str:
-    parsed = urlparse(base_url)
-    scheme = "wss" if parsed.scheme == "https" else "ws"
-    return f"{scheme}://{parsed.netloc}/ws"
-
-
-class LiveStateStream:
-    def __init__(self, base_url: str):
-        self.base_url = base_url
-        self.latest_state: dict | None = None
-        self.error: str | None = None
-        self._ws_module = None
-        self._stop = threading.Event()
-        self._lock = threading.Lock()
-        self._thread = threading.Thread(target=self._run_thread, daemon=True)
-
-    def start(self) -> None:
-        self._thread.start()
-
-    def close(self) -> None:
-        self._stop.set()
-
-    def snapshot(self) -> tuple[dict | None, str | None]:
-        with self._lock:
-            state = dict(self.latest_state) if self.latest_state else None
-            return state, self.error
-
-    def _set_state(self, state: dict | None, error: str | None) -> None:
-        with self._lock:
-            if state is not None:
-                self.latest_state = state
-            self.error = error
-
-    def _run_thread(self) -> None:
-        try:
-            self._ws_module = importlib.import_module("websockets")
-        except ImportError:
-            self._set_state(None, "Install websockets package for live stream")
-            return
-
-        asyncio.run(self._run_forever())
-
-    async def _run_forever(self) -> None:
-        ws_module = self._ws_module
-        if ws_module is None:
-            self._set_state(None, "Install websockets package for live stream")
-            return
-
-        ws_url = build_ws_url(self.base_url)
-        while not self._stop.is_set():
-            try:
-                async with ws_module.connect(ws_url, ping_interval=20, ping_timeout=20) as ws:
-                    self._set_state(None, None)
-
-                    while not self._stop.is_set():
-                        try:
-                            message = await asyncio.wait_for(ws.recv(), timeout=1.0)
-                        except asyncio.TimeoutError:
-                            continue
-
-                        state = json.loads(message)
-                        self._set_state(state, None)
-            except Exception as exc:
-                self._set_state(None, f"stream reconnecting: {exc}")
-                await asyncio.sleep(1)
-
-BIG_DIGITS = {
-    "0": [
-        " ### ",
-        "#   #",
-        "#   #",
-        "#   #",
-        " ### ",
-    ],
-    "1": [
-        "  #  ",
-        " ##  ",
-        "  #  ",
-        "  #  ",
-        " ### ",
-    ],
-    "2": [
-        " ### ",
-        "    #",
-        " ### ",
-        "#    ",
-        "#####",
-    ],
-    "3": [
-        "#### ",
-        "    #",
-        " ### ",
-        "    #",
-        "#### ",
-    ],
-    "4": [
-        "#   #",
-        "#   #",
-        "#####",
-        "    #",
-        "    #",
-    ],
-    "5": [
-        "#####",
-        "#    ",
-        "#### ",
-        "    #",
-        "#### ",
-    ],
-    "6": [
-        " ### ",
-        "#    ",
-        "#### ",
-        "#   #",
-        " ### ",
-    ],
-    "7": [
-        "#####",
-        "    #",
-        "   # ",
-        "  #  ",
-        "  #  ",
-    ],
-    "8": [
-        " ### ",
-        "#   #",
-        " ### ",
-        "#   #",
-        " ### ",
-    ],
-    "9": [
-        " ### ",
-        "#   #",
-        " ####",
-        "    #",
-        " ### ",
-    ],
-    "-": [
-        "     ",
-        "     ",
-        "#####",
-        "     ",
-        "     ",
-    ],
-    "?": [
-        " ### ",
-        "    #",
-        "  ## ",
-        "     ",
-        "  #  ",
-    ],
-    ":": [
-        "     ",
-        "  #  ",
-        "     ",
-        "  #  ",
-        "     ",
-    ],
-}
 
 
 def fetch_state(base_url: str) -> dict:
@@ -200,44 +37,6 @@ def confirm_readiness(base_url: str):
     global READINESS_CONFIRMED
     READINESS_CONFIRMED = True
     return True
-
-
-def draw_label(stdscr: curses.window, y: int, x: int, label: str, value: str, color: int) -> None:
-    stdscr.addstr(y, x, label, curses.A_BOLD)
-    stdscr.addstr(y, x + len(label), value, curses.color_pair(color))
-
-
-def center_text(stdscr: curses.window, y: int, text: str, attr: int = 0) -> None:
-    _, width = stdscr.getmaxyx()
-    stdscr.addstr(y, max(0, (width - len(text)) // 2), text, attr)
-
-
-def make_big_text_rows(text: str) -> list[str]:
-    rows = ["", "", "", "", ""]
-    for ch in text:
-        glyph = BIG_DIGITS.get(ch, BIG_DIGITS["?"])
-        for i in range(5):
-            rows[i] += glyph[i] + "  "
-    return rows
-
-
-def draw_big_score(stdscr: curses.window, top_y: int, x: int, score: int, color: int) -> None:
-    rows = make_big_text_rows(str(score))
-    for offset, row in enumerate(rows):
-        stdscr.addstr(top_y + offset, x, row, curses.color_pair(color) | curses.A_BOLD)
-
-
-def draw_big_text(stdscr: curses.window, top_y: int, x: int, text: str, color: int) -> None:
-    rows = make_big_text_rows(text)
-    for offset, row in enumerate(rows):
-        stdscr.addstr(top_y + offset, x, row, curses.color_pair(color) | curses.A_BOLD)
-
-
-def format_match_time(seconds_value: int) -> str:
-    safe_seconds = max(0, seconds_value)
-    minutes = safe_seconds // 60
-    seconds = safe_seconds % 60
-    return f"{minutes}:{seconds:02d}"
 
 
 def get_display_time(state: dict) -> int:
@@ -285,7 +84,7 @@ def render_winner_screen(stdscr: curses.window, state: dict) -> None:
 
 def render(stdscr: curses.window, base_url: str, state: dict | None, error: str | None) -> None:
     stdscr.erase()
-    height, width = stdscr.getmaxyx()
+    _, width = stdscr.getmaxyx()
 
     title = "Torque FMS - Audience Display"
     subtitle = f"Server: {base_url}    Press q to quit"

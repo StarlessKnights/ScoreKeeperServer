@@ -3,10 +3,8 @@ import json
 import time
 import json
 import requests
-import asyncio
-import threading
-import importlib
-from urllib.parse import urlparse
+from helper.live_state_stream import LiveStateStream
+from helper.drawing_functions import (center_text, format_match_time, draw_label)
 
 
 DEFAULT_URL = "http://127.0.0.1:8000"
@@ -14,73 +12,6 @@ REFRESH_INTERVAL = 0.5
 READINESS_CONFIRMED = False
 
 session = requests.Session()
-
-
-def build_ws_url(base_url: str) -> str:
-    parsed = urlparse(base_url)
-    scheme = "wss" if parsed.scheme == "https" else "ws"
-    return f"{scheme}://{parsed.netloc}/ws"
-
-
-class LiveStateStream:
-    def __init__(self, base_url: str):
-        self.base_url = base_url
-        self.latest_state: dict | None = None
-        self.error: str | None = None
-        self._ws_module = None
-        self._stop = threading.Event()
-        self._lock = threading.Lock()
-        self._thread = threading.Thread(target=self._run_thread, daemon=True)
-
-    def start(self) -> None:
-        self._thread.start()
-
-    def close(self) -> None:
-        self._stop.set()
-
-    def snapshot(self) -> tuple[dict | None, str | None]:
-        with self._lock:
-            state = dict(self.latest_state) if self.latest_state else None
-            return state, self.error
-
-    def _set_state(self, state: dict | None, error: str | None) -> None:
-        with self._lock:
-            if state is not None:
-                self.latest_state = state
-            self.error = error
-
-    def _run_thread(self) -> None:
-        try:
-            self._ws_module = importlib.import_module("websockets")
-        except ImportError:
-            self._set_state(None, "Install websockets package for live stream")
-            return
-
-        asyncio.run(self._run_forever())
-
-    async def _run_forever(self) -> None:
-        ws_module = self._ws_module
-        if ws_module is None:
-            self._set_state(None, "Install websockets package for live stream")
-            return
-
-        ws_url = build_ws_url(self.base_url)
-        while not self._stop.is_set():
-            try:
-                async with ws_module.connect(ws_url, ping_interval=20, ping_timeout=20) as ws:
-                    self._set_state(None, None)
-
-                    while not self._stop.is_set():
-                        try:
-                            message = await asyncio.wait_for(ws.recv(), timeout=1.0)
-                        except asyncio.TimeoutError:
-                            continue
-
-                        state = json.loads(message)
-                        self._set_state(state, None)
-            except Exception as exc:
-                self._set_state(None, f"stream reconnecting: {exc}")
-                await asyncio.sleep(1)
 
 def fetch_state(base_url: str) -> dict:
     url = f"{base_url.rstrip('/')}/"
@@ -104,16 +35,6 @@ def confirm_readiness(base_url: str):
     global READINESS_CONFIRMED
     READINESS_CONFIRMED = True
     return True
-
-
-def draw_label(stdscr: curses.window, y: int, x: int, label: str, value: str, color: int) -> None:
-    stdscr.addstr(y, x, label, curses.A_BOLD)
-    stdscr.addstr(y, x + len(label), value, curses.color_pair(color))
-
-
-def center_text(stdscr: curses.window, y: int, text: str, attr: int = 0) -> None:
-    _, width = stdscr.getmaxyx()
-    stdscr.addstr(y, max(0, (width - len(text)) // 2), text, attr)
 
 
 def render_winner_screen(stdscr: curses.window, state: dict) -> None:
@@ -180,7 +101,7 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
 
 
         draw_label(stdscr, 7, 4, "Phase: ", str(state.get("current_phase", "?")), 2)
-        draw_label(stdscr, 8, 4, "Match Time: ", str(state.get("match_time", "?")), 2)
+        draw_label(stdscr, 8, 4, "Match Time: ", format_match_time(int(state.get("match_time", 1))), 2)
         draw_label(stdscr, 9, 4, "Phase Change Time: ", str(state.get("time_until_phase_change", "?")), 2)
         draw_label(stdscr, 11, 4, "Red Score: ", str(state.get("red_score", 0)), 1)
         draw_label(stdscr, 12, 4, "Blue Score: ", str(state.get("blue_score", 0)), 4)

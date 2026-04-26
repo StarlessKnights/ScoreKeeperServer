@@ -99,23 +99,11 @@ async def update_match_time():
             waiting_for_scorekeepers = False
 
     waiting_for_scorekeepers = False
-    counting_down = True
-    await broadcast_state()
-
-    countdown_end = time.monotonic() + 5
-    last_announce = None
-    while True:
-        remaining = max(0, math.ceil(countdown_end - time.monotonic()))
-        if remaining != last_announce and remaining > 0:
-            print(f"Match starts in {remaining} seconds...")
-            last_announce = remaining
-        if remaining == 0:
-            break
-        await asyncio.sleep(0.05)
-
     counting_down = False
+
     current_phase = "Auto"
     auto_ended = False
+    
     await broadcast_state()
 
     match_end_deadline = time.monotonic() + match_time
@@ -133,6 +121,7 @@ async def update_match_time():
         if match_time > 0:
             update_phase()
             update_time_until_phase_change()
+            
         await broadcast_state()
 
         if (match_time == 140 and not intermission_done):
@@ -166,7 +155,7 @@ async def update_match_time():
     current_phase = "Match Ended"
     time_until_phase_change = 0
     await broadcast_state()
-    print(f"Final Score: Red {red_score} - Blue {blue_score}")
+    print(f"Red {red_score} - Blue {blue_score}")
 
 async def udp_discovery_server():
     global connected_scorekeepers
