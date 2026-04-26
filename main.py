@@ -9,7 +9,6 @@ import threading
 import random
 
 class ScoreData(BaseModel):
-    identifier: str
     alliance: str
     count: int
 
