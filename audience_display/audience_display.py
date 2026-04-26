@@ -70,16 +70,26 @@ def render_winner_screen(stdscr: curses.window, state: dict) -> None:
     stdscr.erase()
     center_text(stdscr, 1, "MATCH COMPLETE", curses.A_BOLD | curses.A_UNDERLINE)
     center_text(stdscr, 3, winner_text, winner_color)
-    center_text(stdscr, 5, f"Final Score: Red {red_score} - Blue {blue_score}", curses.A_BOLD)
+    center_text(stdscr, 5, f"Red {red_score} - Blue {blue_score}", curses.A_BOLD)
 
     center_text(stdscr, 8, f"Red Auto: {red_auto}   Red Teleop: {red_teleop}", curses.color_pair(1))
     center_text(stdscr, 9, f"Blue Auto: {blue_auto}   Blue Teleop: {blue_teleop}", curses.color_pair(4))
 
-    center_text(stdscr, 11, f"Energized Red: {red_score}/360 {'Y' if red_score >= 360 else ' '}    Energized Blue: {blue_score}/360 {'Y' if blue_score >= 360 else ' '}")
-    center_text(stdscr, 12, f"Supercharged Red: {red_score}/500 {'Y' if red_score >= 500 else ' '}    Supercharged Blue: {blue_score}/500 {'Y' if blue_score >= 500 else ' '}")
+    center_text(stdscr, 11, f"Energized Red: {red_score}/360 {'✓' if red_score >= 360 else ' '}    Energized Blue: {blue_score}/360 {'✓' if blue_score >= 360 else ' '}")
+    center_text(stdscr, 12, f"Supercharged Red: {red_score}/500 {'✓' if red_score >= 500 else ' '}    Supercharged Blue: {blue_score}/500 {'✓' if blue_score >= 500 else ' '}")
 
     center_text(stdscr, 15, "Press q to quit", curses.A_DIM)
     stdscr.refresh()
+
+
+def draw_active_arrow(stdscr: curses.window, y: int, x: int, facingLeft: bool) -> None:
+    arrow_attr = curses.color_pair(5) | curses.A_BOLD
+    stdscr.addstr(y, x, "      ", arrow_attr)
+    if facingLeft:
+        stdscr.addstr(y + 1, x, "  <<  ", arrow_attr)
+    else:
+        stdscr.addstr(y + 1, x, "  >>  ", arrow_attr)
+    stdscr.addstr(y + 2, x, "      ", arrow_attr)
 
 
 def render(stdscr: curses.window, base_url: str, state: dict | None, error: str | None) -> None:
@@ -122,8 +132,8 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
 
         red_label = "RED"
         blue_label = "BLUE"
-        stdscr.addstr(15, max(2, width // 4 - len(red_label) // 2), red_label, curses.color_pair(1) | curses.A_BOLD)
-        stdscr.addstr(15, max(2, (3 * width) // 4 - len(blue_label) // 2), blue_label, curses.color_pair(4) | curses.A_BOLD)
+        stdscr.addstr(15, max(2, width // 4 - (len(red_label) + 1) // 2), red_label, curses.color_pair(1) | curses.A_BOLD)
+        stdscr.addstr(15, max(2, (3 * width) // 4 - (len(blue_label) + 1) // 2), blue_label, curses.color_pair(4) | curses.A_BOLD)
 
         big_width_red = len(make_big_text_rows(str(red_score))[0])
         big_width_blue = len(make_big_text_rows(str(blue_score))[0])
@@ -131,6 +141,14 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
         red_x = max(2, width // 4 - big_width_red // 2)
         blue_x = max(2, (3 * width) // 4 - big_width_blue // 2)
 
+        if (state.get("blue_active", False)):
+            blue_arrow_x = max(2, blue_x - 11)
+            draw_active_arrow(stdscr, 17, blue_arrow_x, facingLeft=False)
+            
+        if (state.get("red_active", False)):
+            red_arrow_x = max(2, red_x + 11)
+            draw_active_arrow(stdscr, 17, red_arrow_x, facingLeft=True)
+        
         draw_big_score(stdscr, 16, red_x, red_score, 1)
         draw_big_score(stdscr, 16, blue_x, blue_score, 4)
 
@@ -152,6 +170,7 @@ def run_tui(stdscr: curses.window) -> None:
     curses.init_pair(2, curses.COLOR_GREEN, -1)
     curses.init_pair(3, curses.COLOR_YELLOW, -1)
     curses.init_pair(4, curses.COLOR_BLUE, -1)
+    curses.init_pair(5, curses.COLOR_BLACK, curses.COLOR_YELLOW)
 
     stdscr.nodelay(True)
     stdscr.timeout(100)

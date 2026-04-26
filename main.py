@@ -25,7 +25,7 @@ red_score = 0
 blue_score = 0
 red_wasted = 0
 blue_wasted = 0
-match_time = 10
+match_time = 160
 time_until_phase_change = 0
 current_phase = "Waiting"
 inactive_first = ""
@@ -88,7 +88,7 @@ async def broadcast_state() -> None:
                 ws_clients.discard(client)
 
 async def update_match_time():
-    global match_time, current_phase, counting_down, waiting_for_scorekeepers, red_score
+    global match_time, current_phase, counting_down, waiting_for_scorekeepers, red_score, blue_score
     global time_until_phase_change, auto_ended
 
     while (waiting_for_scorekeepers or not tui_ready):
