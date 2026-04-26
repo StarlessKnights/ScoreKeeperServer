@@ -141,11 +141,11 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
         red_x = max(2, width // 4 - big_width_red // 2)
         blue_x = max(2, (3 * width) // 4 - big_width_blue // 2)
 
-        if (state.get("blue_active", False)):
+        if (state.get("blue_active", False) and not state.get("current_phase", "") == "Waiting"):
             blue_arrow_x = max(2, blue_x - 11)
             draw_active_arrow(stdscr, 17, blue_arrow_x, facingLeft=False)
             
-        if (state.get("red_active", False)):
+        if (state.get("red_active", False) and not state.get("current_phase", "") == "Waiting"):
             red_arrow_x = max(2, red_x + 11)
             draw_active_arrow(stdscr, 17, red_arrow_x, facingLeft=True)
         
