@@ -82,16 +82,112 @@ class LiveStateStream:
                 self._set_state(None, f"stream reconnecting: {exc}")
                 await asyncio.sleep(1)
 
+BIG_DIGITS = {
+    "0": [
+        " ### ",
+        "#   #",
+        "#   #",
+        "#   #",
+        " ### ",
+    ],
+    "1": [
+        "  #  ",
+        " ##  ",
+        "  #  ",
+        "  #  ",
+        " ### ",
+    ],
+    "2": [
+        " ### ",
+        "    #",
+        " ### ",
+        "#    ",
+        "#####",
+    ],
+    "3": [
+        "#### ",
+        "    #",
+        " ### ",
+        "    #",
+        "#### ",
+    ],
+    "4": [
+        "#   #",
+        "#   #",
+        "#####",
+        "    #",
+        "    #",
+    ],
+    "5": [
+        "#####",
+        "#    ",
+        "#### ",
+        "    #",
+        "#### ",
+    ],
+    "6": [
+        " ### ",
+        "#    ",
+        "#### ",
+        "#   #",
+        " ### ",
+    ],
+    "7": [
+        "#####",
+        "    #",
+        "   # ",
+        "  #  ",
+        "  #  ",
+    ],
+    "8": [
+        " ### ",
+        "#   #",
+        " ### ",
+        "#   #",
+        " ### ",
+    ],
+    "9": [
+        " ### ",
+        "#   #",
+        " ####",
+        "    #",
+        " ### ",
+    ],
+    "-": [
+        "     ",
+        "     ",
+        "#####",
+        "     ",
+        "     ",
+    ],
+    "?": [
+        " ### ",
+        "    #",
+        "  ## ",
+        "     ",
+        "  #  ",
+    ],
+    ":": [
+        "     ",
+        "  #  ",
+        "     ",
+        "  #  ",
+        "     ",
+    ],
+}
+
+
 def fetch_state(base_url: str) -> dict:
     url = f"{base_url.rstrip('/')}/"
-    
+
     try:
         r = session.get(url, timeout=2)
     except:
         return {}
 
     return r.json()
-    
+
+
 def confirm_readiness(base_url: str):
     url = f"{base_url.rstrip('/')}/tui"
     data = {}
@@ -100,7 +196,7 @@ def confirm_readiness(base_url: str):
 
     if (r.status_code != 200):
         return False
-    
+
     global READINESS_CONFIRMED
     READINESS_CONFIRMED = True
     return True
@@ -116,9 +212,45 @@ def center_text(stdscr: curses.window, y: int, text: str, attr: int = 0) -> None
     stdscr.addstr(y, max(0, (width - len(text)) // 2), text, attr)
 
 
-def render_winner_screen(stdscr: curses.window, state: dict) -> None:
-    height, width = stdscr.getmaxyx()
+def make_big_text_rows(text: str) -> list[str]:
+    rows = ["", "", "", "", ""]
+    for ch in text:
+        glyph = BIG_DIGITS.get(ch, BIG_DIGITS["?"])
+        for i in range(5):
+            rows[i] += glyph[i] + "  "
+    return rows
 
+
+def draw_big_score(stdscr: curses.window, top_y: int, x: int, score: int, color: int) -> None:
+    rows = make_big_text_rows(str(score))
+    for offset, row in enumerate(rows):
+        stdscr.addstr(top_y + offset, x, row, curses.color_pair(color) | curses.A_BOLD)
+
+
+def draw_big_text(stdscr: curses.window, top_y: int, x: int, text: str, color: int) -> None:
+    rows = make_big_text_rows(text)
+    for offset, row in enumerate(rows):
+        stdscr.addstr(top_y + offset, x, row, curses.color_pair(color) | curses.A_BOLD)
+
+
+def format_match_time(seconds_value: int) -> str:
+    safe_seconds = max(0, seconds_value)
+    minutes = safe_seconds // 60
+    seconds = safe_seconds % 60
+    return f"{minutes}:{seconds:02d}"
+
+
+def get_display_time(state: dict) -> int:
+    current_phase = str(state.get("current_phase", ""))
+    raw_match_time = int(state.get("match_time", 0))
+
+    if current_phase == "Auto" and raw_match_time > 140:
+        return max(0, raw_match_time - 140)
+
+    return max(0, raw_match_time)
+
+
+def render_winner_screen(stdscr: curses.window, state: dict) -> None:
     red_score = int(state.get("red_score", 0))
     blue_score = int(state.get("blue_score", 0))
     red_auto = int(state.get("red_scored_auto", 0))
@@ -143,13 +275,11 @@ def render_winner_screen(stdscr: curses.window, state: dict) -> None:
 
     center_text(stdscr, 8, f"Red Auto: {red_auto}   Red Teleop: {red_teleop}", curses.color_pair(1))
     center_text(stdscr, 9, f"Blue Auto: {blue_auto}   Blue Teleop: {blue_teleop}", curses.color_pair(4))
-    
-    center_text(stdscr, 11, f"Energized Red: {red_score}/360 {'✓' if red_score >= 360 else ' '}    Energized Blue: {blue_score}/360 {'✓' if blue_score >= 360 else ''}")
-    center_text(stdscr, 12, f"Supercharged Red: {red_score}/500 {'✓' if red_score >= 500 else ' '}    Energized Blue: {blue_score}/500 {'✓' if blue_score >= 500 else ''}")
+
+    center_text(stdscr, 11, f"Energized Red: {red_score}/360 {'Y' if red_score >= 360 else ' '}    Energized Blue: {blue_score}/360 {'Y' if blue_score >= 360 else ' '}")
+    center_text(stdscr, 12, f"Supercharged Red: {red_score}/500 {'Y' if red_score >= 500 else ' '}    Supercharged Blue: {blue_score}/500 {'Y' if blue_score >= 500 else ' '}")
 
     center_text(stdscr, 15, "Press q to quit", curses.A_DIM)
-    footer = "Winner is based on total score; breakdown shows auto and teleop points"
-    center_text(stdscr, height - 2, footer[: max(0, width - 2)], curses.A_DIM)
     stdscr.refresh()
 
 
@@ -157,7 +287,7 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
     stdscr.erase()
     height, width = stdscr.getmaxyx()
 
-    title = "Torque FMS"
+    title = "Torque FMS - Audience Display"
     subtitle = f"Server: {base_url}    Press q to quit"
     stdscr.addstr(1, max(0, (width - len(title)) // 2), title, curses.A_BOLD | curses.A_UNDERLINE)
     stdscr.addstr(3, max(0, (width - len(subtitle)) // 2), subtitle)
@@ -170,7 +300,7 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
         if int(state.get("match_time", 1)) <= 0 or state.get("current_phase") == "Match Ended":
             render_winner_screen(stdscr, state)
             return
-        
+
         if (state.get("waiting_for_scorekeepers", True) == True):
             stdscr.addstr(5, 4, "Status: waiting for scorekeepers", curses.color_pair(3) | curses.A_BOLD)
         elif not READINESS_CONFIRMED:
@@ -178,24 +308,40 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
         else:
             stdscr.addstr(5, 4, "Status: active", curses.color_pair(2) | curses.A_BOLD)
 
+        center_text(stdscr, 7, f"Phase: {str(state.get('current_phase', '?'))}", curses.A_BOLD)
 
-        draw_label(stdscr, 7, 4, "Phase: ", str(state.get("current_phase", "?")), 2)
-        draw_label(stdscr, 8, 4, "Match Time: ", str(state.get("match_time", "?")), 2)
-        draw_label(stdscr, 9, 4, "Phase Change Time: ", str(state.get("time_until_phase_change", "?")), 2)
-        draw_label(stdscr, 11, 4, "Red Score: ", str(state.get("red_score", 0)), 1)
-        draw_label(stdscr, 12, 4, "Blue Score: ", str(state.get("blue_score", 0)), 4)
-        draw_label(stdscr, 13, 4, "Red Wasted: ", str(state.get("red_wasted", 0)), 1)
-        draw_label(stdscr, 14, 4, "Blue Wasted: ", str(state.get("blue_wasted", 0)), 4)
-        draw_label(stdscr, 16, 4, "Connected Scorekeepers: ", str(state.get("connected_scorekeepers", 0)), 2)
-        draw_label(stdscr, 17, 4, "Counting Down: ", str(state.get("counting_down", False)), 2)
+        display_time_value = get_display_time(state)
+        center_text(stdscr, 8, "Match Time", curses.A_BOLD)
 
-        red_active = state.get("red_active", False)
-        blue_active = state.get("blue_active", False)
-        draw_label(stdscr, 19, 4, "Red Active: ", str(red_active), 1 if red_active else 3)
-        draw_label(stdscr, 20, 4, "Blue Active: ", str(blue_active), 4 if blue_active else 3)
+        match_time_text = format_match_time(display_time_value)
+        match_time_width = len(make_big_text_rows(match_time_text)[0])
+        match_time_x = max(2, (width - match_time_width) // 2)
+        draw_big_text(stdscr, 10, match_time_x, match_time_text, 2)
 
-    footer = "Refreshes automatically every 0.5s"
-    stdscr.addstr(height - 2, max(0, (width - len(footer)) // 2), footer, curses.A_DIM)
+        red_score = int(state.get("red_score", 0))
+        blue_score = int(state.get("blue_score", 0))
+
+        red_label = "RED"
+        blue_label = "BLUE"
+        stdscr.addstr(15, max(2, width // 4 - len(red_label) // 2), red_label, curses.color_pair(1) | curses.A_BOLD)
+        stdscr.addstr(15, max(2, (3 * width) // 4 - len(blue_label) // 2), blue_label, curses.color_pair(4) | curses.A_BOLD)
+
+        big_width_red = len(make_big_text_rows(str(red_score))[0])
+        big_width_blue = len(make_big_text_rows(str(blue_score))[0])
+
+        red_x = max(2, width // 4 - big_width_red // 2)
+        blue_x = max(2, (3 * width) // 4 - big_width_blue // 2)
+
+        draw_big_score(stdscr, 16, red_x, red_score, 1)
+        draw_big_score(stdscr, 16, blue_x, blue_score, 4)
+
+        center_text(
+            stdscr,
+            23,
+            f"Red Wasted: {state.get('red_wasted', 0)}    Blue Wasted: {state.get('blue_wasted', 0)}    Scorekeepers: {state.get('connected_scorekeepers', 0)}",
+            curses.A_BOLD,
+        )
+
     stdscr.refresh()
 
 

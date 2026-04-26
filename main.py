@@ -1,6 +1,8 @@
 import asyncio
 import socket
-from fastapi import FastAPI, HTTPException
+import time
+import math
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 import threading
@@ -24,7 +26,7 @@ red_score = 0
 blue_score = 0
 red_wasted = 0
 blue_wasted = 0
-match_time = 160
+match_time = 10
 time_until_phase_change = 0
 current_phase = "Waiting"
 inactive_first = ""
@@ -41,48 +43,130 @@ blue_scored_teleop = 0
 
 tui_ready = False
 
-DESIRED_SCOREKEEPERS = 1
+DESIRED_SCOREKEEPERS = 0
+ws_clients: set[WebSocket] = set()
+ws_clients_lock = asyncio.Lock()
+
+
+def build_state_payload() -> dict:
+    return {
+        "red_score": red_score,
+        "blue_score": blue_score,
+        "current_phase": current_phase,
+        "match_time": match_time,
+        "red_active": is_alliance_active("Red"),
+        "blue_active": is_alliance_active("Blue"),
+        "red_wasted": red_wasted,
+        "blue_wasted": blue_wasted,
+        "counting_down": counting_down,
+        "connected_scorekeepers": connected_scorekeepers,
+        "red_scored_auto": red_scored_auto,
+        "blue_scored_auto": blue_scored_auto,
+        "red_scored_teleop": red_scored_teleop,
+        "blue_scored_teleop": blue_scored_teleop,
+        "waiting_for_scorekeepers": waiting_for_scorekeepers,
+        "tui_ready": tui_ready,
+        "batched_score": batched_score,
+        "time_until_phase_change": time_until_phase_change,
+    }
+
+
+async def broadcast_state() -> None:
+    payload = build_state_payload()
+    async with ws_clients_lock:
+        clients = list(ws_clients)
+
+    stale_clients: list[WebSocket] = []
+    for client in clients:
+        try:
+            await client.send_json(payload)
+        except Exception:
+            stale_clients.append(client)
+
+    if stale_clients:
+        async with ws_clients_lock:
+            for client in stale_clients:
+                ws_clients.discard(client)
 
 async def update_match_time():
-    global match_time, current_phase, counting_down, waiting_for_scorekeepers
+    global match_time, current_phase, counting_down, waiting_for_scorekeepers, red_score
+    global time_until_phase_change, auto_ended
 
     while (waiting_for_scorekeepers or not tui_ready):
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)
 
         if (len(connected_scorekeepers) == DESIRED_SCOREKEEPERS):
             waiting_for_scorekeepers = False
 
     waiting_for_scorekeepers = False
     counting_down = True
+    await broadcast_state()
 
-    for i in range(5):
-        print(f"Match starts in {5 - i} seconds...")
-        await asyncio.sleep(1)
+    countdown_end = time.monotonic() + 5
+    last_announce = None
+    while True:
+        remaining = max(0, math.ceil(countdown_end - time.monotonic()))
+        if remaining != last_announce and remaining > 0:
+            print(f"Match starts in {remaining} seconds...")
+            last_announce = remaining
+        if remaining == 0:
+            break
+        await asyncio.sleep(0.05)
 
     counting_down = False
-
     current_phase = "Auto"
+    auto_ended = False
+    await broadcast_state()
+
+    match_end_deadline = time.monotonic() + match_time
+    next_match_tick = time.monotonic() + 1.0
+    intermission_done = False
 
     while match_time > 0:
-        await asyncio.sleep(1)
-        match_time -= 1
-        update_phase()
-        update_time_until_phase_change()
+        sleep_for = next_match_tick - time.monotonic()
+        if sleep_for > 0:
+            await asyncio.sleep(sleep_for)
+        else:
+            next_match_tick = time.monotonic()
 
-        if (match_time == 140):
+        match_time = max(0, match_time - 1)
+        if match_time > 0:
+            update_phase()
+            update_time_until_phase_change()
+        await broadcast_state()
+
+        if (match_time == 140 and not intermission_done):
             print("Auto phase ended")
-
             current_phase = "Intermission"
+            time_until_phase_change = 0
+            await broadcast_state()
 
-            for i in range(3):
-                print(f"Transition starts in {3 - i} seconds...")
-                await asyncio.sleep(1)
+            transition_end = time.monotonic() + 3
+            transition_last_announce = None
+            while True:
+                transition_remaining = max(0, math.ceil(transition_end - time.monotonic()))
+                if transition_remaining != transition_last_announce and transition_remaining > 0:
+                    print(f"Transition starts in {transition_remaining} seconds...")
+                    transition_last_announce = transition_remaining
+                if transition_remaining == 0:
+                    break
+                await asyncio.sleep(0.05)
 
-    if match_time == 0:
-        print("Match ended")
-        current_phase = "Match Ended"
+            intermission_done = True
+            match_end_deadline += 3
+            update_phase()
+            update_time_until_phase_change()
+            await broadcast_state()
+            next_match_tick = time.monotonic() + 1.0
+            continue
 
-        print(f"Final Score: Red {red_score} - Blue {blue_score}")
+        next_match_tick += 1.0
+
+    print("Match ended")
+    current_phase = "Match Ended"
+    time_until_phase_change = 0
+    await broadcast_state()
+    print(f"Final Score: Red {red_score} - Blue {blue_score}")
 
 async def udp_discovery_server():
     global connected_scorekeepers
@@ -102,43 +186,47 @@ async def udp_discovery_server():
             
             if (addr not in connected_scorekeepers):
                 connected_scorekeepers.append(addr)
+                await broadcast_state()
 
 @app.get("/")
 def read_root():
-    return {
-        "red_score": red_score, 
-        "blue_score": blue_score, 
-        "current_phase": current_phase, 
-        "match_time": match_time, 
-        "red_active": is_alliance_active("Red"), 
-        "blue_active": is_alliance_active("Blue"), 
-        "red_wasted": red_wasted, 
-        "blue_wasted": blue_wasted, 
-        "counting_down": counting_down, 
-        "connected_scorekeepers": connected_scorekeepers, 
-        "red_scored_auto": red_scored_auto, 
-        "blue_scored_auto": blue_scored_auto, 
-        "red_scored_teleop": red_scored_teleop, 
-        "blue_scored_teleop": blue_scored_teleop, 
-        "waiting_for_scorekeepers": waiting_for_scorekeepers, 
-        "tui_ready": tui_ready, 
-        "batched_score": batched_score,
-        "time_until_phase_change": time_until_phase_change
-        }
+    return build_state_payload()
 
 @app.post("/tui")
-def post_tui_ready():
+async def post_tui_ready():
     global tui_ready
     tui_ready = True
+    await broadcast_state()
+    return {"message": "tui readiness confirmed"}
 
 @app.post("/", status_code=201)
-def change_score(data: ScoreData):
+async def change_score(data: ScoreData):
     response = update_score(data)
+    await broadcast_state()
     
     if (response["ok"] == True):
         return {"message": response["message"]}
     else:
         return HTTPException(404, response["message"])
+
+
+@app.websocket("/ws")
+async def websocket_state(websocket: WebSocket):
+    await websocket.accept()
+    async with ws_clients_lock:
+        ws_clients.add(websocket)
+
+    try:
+        await websocket.send_json(build_state_payload())
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        async with ws_clients_lock:
+            ws_clients.discard(websocket)
 
 def update_score(data: ScoreData) -> dict:
     global red_score, blue_score, red_wasted, blue_wasted, batched_score
