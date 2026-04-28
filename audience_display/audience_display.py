@@ -50,6 +50,9 @@ def confirm_readiness(base_url: str):
 def get_display_time(state: dict) -> int:
     current_phase = str(state.get("current_phase", ""))
     raw_match_time = int(state.get("match_time", 0))
+    
+    if (current_phase == "Waiting"):
+        return 20
 
     if current_phase == "Auto" and raw_match_time > 140:
         return max(0, raw_match_time - 140)
