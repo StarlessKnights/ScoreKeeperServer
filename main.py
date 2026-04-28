@@ -41,7 +41,7 @@ blue_scored_teleop = 0
 
 tui_ready = False
 
-DESIRED_SCOREKEEPERS = 0
+DESIRED_SCOREKEEPERS = 2
 ws_clients: set[WebSocket] = set()
 ws_clients_lock = asyncio.Lock()
 
@@ -113,9 +113,6 @@ async def update_match_time():
             await asyncio.sleep(sleep_for)
         else:
             next_match_tick = time.monotonic()
-            
-        update_score(ScoreData(alliance="Red", count=random.randint(0, 20)))
-        update_score(ScoreData(alliance="Blue", count=random.randint(0, 20)))
 
         match_time = max(0, match_time - 1)
         if match_time > 0:
@@ -176,6 +173,10 @@ async def udp_discovery_server():
             if (addr not in connected_scorekeepers):
                 connected_scorekeepers.append(addr)
                 await broadcast_state()
+                
+                if (len(connected_scorekeepers) == DESIRED_SCOREKEEPERS):
+                    global waiting_for_scorekeepers
+                    waiting_for_scorekeepers = False
 
 @app.get("/")
 def read_root():

@@ -7,7 +7,7 @@ from helper.live_state_stream import LiveStateStream
 from helper.drawing_functions import (center_text, draw_big_score, draw_big_text, format_match_time, make_big_text_rows)
 import os
 
-DEFAULT_URL = "http://127.0.0.1:8000"
+DEFAULT_URL = "http://192.168.2.1:8000"
 REFRESH_INTERVAL = 0.5
 READINESS_CONFIRMED = False
 READY_TO_ADVANCE = False
@@ -162,7 +162,7 @@ def render(stdscr: curses.window, base_url: str, state: dict | None, error: str 
         center_text(
             stdscr,
             23,
-            f"Red Wasted: {state.get('red_wasted', 0)}    Blue Wasted: {state.get('blue_wasted', 0)}    Scorekeepers: {state.get('connected_scorekeepers', 0)}",
+            f"Red Wasted: {state.get('red_wasted', 0)}    Blue Wasted: {state.get('blue_wasted', 0)}    Scorekeepers: {len(state.get('connected_scorekeepers', []))}",
         )
 
     stdscr.refresh()
