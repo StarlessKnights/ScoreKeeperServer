@@ -22,3 +22,4 @@ class DiscoveryProtocol(asyncio.DatagramProtocol):
             with self.match_controller.state.lock:
                 if addr not in self.match_controller.state.game_state.connected_scorekeepers:
                     self.match_controller.state.game_state.connected_scorekeepers.append(addr)
+                    _ = asyncio.create_task(self.match_controller.broadcast_state())

@@ -20,7 +20,7 @@ async def udp_discovery_server():
     
     transport, protocol = await loop.create_datagram_endpoint(
         lambda: DiscoveryProtocol(match_controller=match_controller),
-        local_addr=('0.0.0.0', 4211)
+        local_addr=('0.0.0.0', 4210)
     )
     
     return transport, protocol
