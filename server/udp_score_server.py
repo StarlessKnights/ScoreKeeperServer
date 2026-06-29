@@ -24,6 +24,7 @@ class ScoreProtocol(asyncio.DatagramProtocol):
             return
 
         self.match_controller.update_score(alliance, int(score_str))
+        asyncio.create_task(self.match_controller.broadcast_state())
 
         print(
             f"Received score update from {addr}: {alliance} scored {score_str} points"

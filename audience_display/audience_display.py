@@ -122,7 +122,27 @@ def draw_active_arrow(stdscr: curses.window, y: int, x: int, facingLeft: bool) -
     stdscr.addstr(y + 2, x, "      ", arrow_attr)
 
 
+def _safe_addstr(
+    stdscr: curses.window, y: int, x: int, text: str, attr: int = 0
+) -> None:
+    _, width = stdscr.getmaxyx()
+    max_len = width - x
+    if max_len <= 0:
+        return
+    safe_text = text[:max_len]
+    stdscr.addstr(y, x, safe_text, attr)
+
+
 def render(
+    stdscr: curses.window, base_url: str, state: dict | None, error: str | None
+) -> None:
+    try:
+        _render_inner(stdscr, base_url, state, error)
+    except curses.error:
+        pass
+
+
+def _render_inner(
     stdscr: curses.window, base_url: str, state: dict | None, error: str | None
 ) -> None:
     stdscr.erase()
@@ -136,10 +156,10 @@ def render(
     stdscr.addstr(3, max(0, (width - len(subtitle)) // 2), subtitle)
 
     if error:
-        stdscr.addstr(5, 4, f"Status: {error}", curses.color_pair(3) | curses.A_BOLD)
+        _safe_addstr(stdscr, 5, 4, f"Status: {error}", curses.color_pair(3) | curses.A_BOLD)
     elif not state:
-        stdscr.addstr(
-            5, 4, "Status: waiting for server...", curses.color_pair(3) | curses.A_BOLD
+        _safe_addstr(
+            stdscr, 5, 4, "Status: waiting for server...", curses.color_pair(3) | curses.A_BOLD
         )
     else:
         if (
@@ -253,7 +273,10 @@ def run_tui(stdscr: curses.window) -> None:
             state = stream_state
             error = None
         elif stream_error and state is None:
-            error = stream_error
+            if "Connect call failed" in stream_error or "Connection refused" in stream_error:
+                error = "Cannot connect to server"
+            else:
+                error = stream_error
 
         render(stdscr, DEFAULT_URL, state, error)
 
