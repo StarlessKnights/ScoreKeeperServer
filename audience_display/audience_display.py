@@ -15,7 +15,6 @@ from helper.drawing_functions import (
 from helper.live_state_stream import LiveStateStream
 
 DEFAULT_URL = "http://0.0.0.0:8000"
-REFRESH_INTERVAL = 0.5
 READINESS_CONFIRMED = False
 READY_TO_ADVANCE = False
 
@@ -33,17 +32,6 @@ else:
     highest_match_number = 0
 
 session = requests.Session()
-
-
-def fetch_state(base_url: str) -> dict:
-    url = f"{base_url.rstrip('/')}/"
-
-    try:
-        r = session.get(url, timeout=2)
-    except requests.exceptions.RequestException:
-        return {}
-
-    return r.json()
 
 
 def confirm_readiness(base_url: str):
@@ -256,32 +244,14 @@ def run_tui(stdscr: curses.window) -> None:
 
     state = None
     error = None
-    last_fetch = 0.0
     stream = LiveStateStream(DEFAULT_URL)
     stream.start()
 
     while True:
-        now = time.time()
-
         stream_state, stream_error = stream.snapshot()
         if stream_state is not None:
             state = stream_state
             error = None
-
-        if stream_state is None and now - last_fetch >= REFRESH_INTERVAL:
-            try:
-                state = fetch_state(DEFAULT_URL)
-                error = None
-            except (
-                requests.HTTPError,
-                requests.Timeout,
-                TimeoutError,
-                json.JSONDecodeError,
-                OSError,
-            ) as exc:
-                state = None
-                error = str(exc)
-            last_fetch = now
         elif stream_error and state is None:
             error = stream_error
 

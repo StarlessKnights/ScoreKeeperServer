@@ -1,62 +1,76 @@
-from server.states import ServerState, GameState
-from server.config import Config
 import asyncio
-import time
 import random
+import time
+
+from server.config import Config
+from server.states import GameState, ServerState
+
 
 class MatchController:
     def __init__(self):
         self.state = ServerState()
         self.config = Config()
-        
+
     def get_game_state(self) -> GameState:
         return self.state.game_state
-    
+
     def update_score(self, alliance: str, points: int):
         with self.state.lock:
             current_phase = self.state.game_state.current_phase
-            
-            if (current_phase == "Waiting" or current_phase == "Intermission"):
+
+            if current_phase == "Waiting" or current_phase == "Intermission":
                 return
-            
+
             if alliance == "red":
                 if self.is_alliance_active("red"):
                     self.state.game_state.red_score += points
-                    
+
                     if current_phase == "Auto":
                         self.state.red_scored_auto += points
                     else:
                         self.state.red_scored_teleop += points
                 else:
                     self.state.game_state.red_wasted += points
-                    
+
                 return
-            
+
             if alliance == "blue":
                 if self.is_alliance_active("blue"):
                     self.state.game_state.blue_score += points
-                    
+
                     if current_phase == "Auto":
                         self.state.blue_scored_auto += points
                     else:
                         self.state.blue_scored_teleop += points
                 else:
                     self.state.game_state.blue_wasted += points
-                    
+
                 return
-                
+
     def is_alliance_active(self, alliance: str) -> bool:
         current_phase = self.state.game_state.current_phase
         inactive_first = self.state.game_state.inactive_first
-        
+
         if inactive_first == "":
             return True
-        
+
         if alliance == inactive_first:
-            return current_phase in ["Auto", "Transition", "Shift 2", "Shift 4", "Endgame"]
+            return current_phase in [
+                "Auto",
+                "Transition",
+                "Shift 2",
+                "Shift 4",
+                "Endgame",
+            ]
         else:
-            return current_phase in ["Auto", "Transition", "Shift 1", "Shift 3", "Endgame"]
-        
+            return current_phase in [
+                "Auto",
+                "Transition",
+                "Shift 1",
+                "Shift 3",
+                "Endgame",
+            ]
+
     def update_phase(self):
         match_time = self.state.game_state.match_time
 
@@ -66,7 +80,7 @@ class MatchController:
             if not self.state.auto_ended:
                 self.announce_auto_winner()
                 self.state.auto_ended = True
-                
+
             phase = "Transition"
         elif match_time > 105:
             phase = "Shift 1"
@@ -80,43 +94,43 @@ class MatchController:
             phase = "Endgame"
 
         self.state.game_state.current_phase = phase
-        
+
         self.update_alliance_active()
 
     def announce_auto_winner(self):
         red_auto = self.state.red_scored_auto
         blue_auto = self.state.blue_scored_auto
-        
+
         if red_auto > blue_auto:
-            self.state.game_state.inactive_first = "blue"
-        elif blue_auto > red_auto:
             self.state.game_state.inactive_first = "red"
+        elif blue_auto > red_auto:
+            self.state.game_state.inactive_first = "blue"
         else:
             self.state.game_state.inactive_first = random.choice(["red", "blue"])
-            
+
     def update_time_until_phase_change(self):
         current_phase = self.state.game_state.current_phase
         match_time = self.state.game_state.match_time
-        
-        if (current_phase == "Auto"):
+
+        if current_phase == "Auto":
             self.state.game_state.time_until_phase_change = match_time - 140
-        elif (current_phase == "Transition"):
+        elif current_phase == "Transition":
             self.state.game_state.time_until_phase_change = match_time - 130
-        elif (current_phase == "Shift 1"):
+        elif current_phase == "Shift 1":
             self.state.game_state.time_until_phase_change = match_time - 105
-        elif (current_phase == "Shift 2"):
+        elif current_phase == "Shift 2":
             self.state.game_state.time_until_phase_change = match_time - 80
-        elif (current_phase == "Shift 3"):
+        elif current_phase == "Shift 3":
             self.state.game_state.time_until_phase_change = match_time - 55
-        elif (current_phase == "Shift 4"):
+        elif current_phase == "Shift 4":
             self.state.game_state.time_until_phase_change = match_time - 30
-        elif (current_phase == "Endgame"):
+        elif current_phase == "Endgame":
             self.state.game_state.time_until_phase_change = match_time
-            
+
     def update_alliance_active(self):
         self.state.game_state.red_active = self.is_alliance_active("red")
         self.state.game_state.blue_active = self.is_alliance_active("blue")
-            
+
     async def broadcast_state(self):
         with self.state.lock:
             payload = self.get_game_state().__dict__.copy()
@@ -145,7 +159,9 @@ class MatchController:
                 ):
                     self.state.game_state.waiting_for_scorekeepers = False
 
-                waiting_for_scorekeepers = self.state.game_state.waiting_for_scorekeepers
+                waiting_for_scorekeepers = (
+                    self.state.game_state.waiting_for_scorekeepers
+                )
                 display_ready = self.state.display_ready
 
             if not (waiting_for_scorekeepers or not display_ready):
@@ -178,7 +194,9 @@ class MatchController:
 
             intermission_started = False
             with self.state.lock:
-                self.state.game_state.match_time = max(0, self.state.game_state.match_time - 1)
+                self.state.game_state.match_time = max(
+                    0, self.state.game_state.match_time - 1
+                )
 
                 self.update_phase()
                 self.update_time_until_phase_change()
@@ -192,7 +210,7 @@ class MatchController:
                     self.state.game_state.time_until_phase_change = 0
                     self.state.intermission_ended = True
                     intermission_started = True
-                
+
             await self.broadcast_state()
 
             if intermission_started:
@@ -217,8 +235,7 @@ class MatchController:
         with self.state.lock:
             self.state.game_state.current_phase = "Match Ended"
             self.state.game_state.time_until_phase_change = 0
-            
+
             self.update_alliance_active()
 
         await self.broadcast_state()
-                
