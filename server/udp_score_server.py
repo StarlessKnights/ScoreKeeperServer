@@ -17,13 +17,8 @@ class ScoreProtocol(asyncio.DatagramProtocol):
     def datagram_received(self, data: bytes, addr: tuple[str | Any, int]) -> None:
         msg = data.decode()
 
-        print(f"Received message from {addr}: {msg}")
-
         try:
             identifier, alliance, score_str = msg.split("|")
-            print(
-                f"Received score update from {addr}: {alliance} scored {score_str} points"
-            )
         except:
             print(f"Received malformed message from {addr}: {msg}")
             return
